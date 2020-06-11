@@ -1,7 +1,6 @@
 open Lwt.Infix
 
-let root =
-  "/home/craigfe/data/tezos/stores/full_store_BLAktkWruUqXNgHAiR7kLh4dMP96mGmQANDGagdHAsTXfqgvfiR_933914/context"
+let root = "data/context"
 
 let store_hash_hex =
   "2ef3daa18c79b75446b8608885afde542404c63f9ca5f4029017898a48f6cb7d"

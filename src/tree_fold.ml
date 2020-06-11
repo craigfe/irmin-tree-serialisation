@@ -36,18 +36,13 @@ module Utils = struct
 end
 
 module I = struct
-  let tree_list tree =
-    let+ ret = Store.Tree.list tree [] in
-    Fmt.epr "\ntree_list: %a\n" Fmt.(Dump.list (using fst string)) ret;
-    ret
+  let tree_list tree = Store.Tree.list tree []
 
   let sub_tree tree key =
-    Store.Tree.get_tree tree key >|= fun subtree ->
-    Store.Tree.clear tree;
-    subtree
+    Store.Tree.get_tree tree key >|= fun subtree -> subtree
 
   let tree_hash = function
-    | `Node _ as tree -> `Node (Store.Tree.hash tree)
+    | `Node tree -> `Node (Store.Tree.hash tree)
     | `Contents (b, _) -> `Blob (Store.Contents.hash b)
 
   let tree_content tree = Store.Tree.find tree []
@@ -65,19 +60,39 @@ let heap_log, statmemprof_log, event_log =
   and statmemprof = statfmt "statmemprof"
   and events = statfmt "events" in
 
-  Fmt.pf heap "sys time,total visited,minor words,major words\n";
+  Fmt.pf heap "sys time,total visited,minor words,major words,live\n";
   Fmt.pf events "total_visited,type,systime_start,systime_end\n";
 
   Fmt.pr "This run has id `%Ld'\n" uid;
   Fmt.pr "Stats streaming to `%s'\n%!" tmp_dir;
   (heap, statmemprof, events)
 
+module Tbl = struct
+  include Hashset.Make (struct
+    type t = string
+
+    external get_64 : string -> int -> int64 = "%caml_string_get64u"
+
+    let hash x = Int64.to_int (get_64 x 0)
+
+    let equal x y = String.equal x y
+  end)
+
+  let of_hash h = String.sub (Irmin.Type.to_bin_string Store.Hash.t h) 0 5
+
+  let mem t k = mem t (of_hash k)
+
+  let add t k = add t (of_hash k)
+end
+
+module G = Irmin.Private.Node.Graph (Store.Private.Node)
+
 (* Folding through a node *)
 let fold_tree_path ~(written : int ref) ~(maybe_flush : unit -> unit Lwt.t) ~buf
     tree =
   (* Noting the visited hashes *)
-  let visited_hash = Hashtbl.create 1000 in
-  let visited h = Hashtbl.mem visited_hash h in
+  let visited_hash = Tbl.create 100_000 in
+  let visited h = Tbl.mem visited_hash h in
   let set_visit =
     let total_visited = ref 0 in
     fun h ->
@@ -85,61 +100,58 @@ let fold_tree_path ~(written : int ref) ~(maybe_flush : unit -> unit Lwt.t) ~buf
           m "Context: %dK elements, %dMiB written%!" (!total_visited / 1_000)
             (!written / 1_048_576));
 
-      ( if !total_visited mod 10_000 = 0 then
-        let Gc.{ major_words; minor_words; _ } = Gc.quick_stat () in
-        (* let hashtbl_words = Obj.reachable_words (Obj.repr visited_hash) in *)
-        Fmt.pf heap_log "%f,%d,%f,%f\n%!" (Sys.time ()) !total_visited
-          minor_words major_words
-        (* if !total_visited = 3_000_000 then memprof_active := true ; *) );
-
-      if !total_visited mod 100_000 = 0 then (
-        let time_started = Sys.time () in
-        Gc.minor ();
-        let time_ended = Sys.time () in
-        Fmt.pf event_log "%d,minor_collect,%f,%f\n%!" !total_visited
-          time_started time_ended );
-
       incr total_visited;
-      Hashtbl.add visited_hash h ();
+      Tbl.add visited_hash h;
       ()
   in
-  let rec fold_tree_path tree ret =
+  let rec iter_tree tree =
     let* keys = I.tree_list tree in
-    let keys = List.sort (fun (a, _) (b, _) -> String.compare a b) keys in
-
-    let* sub_keys =
-      keys
-      |> Lwt_list.fold_left_s
-           (fun acc (name, kind) ->
-             let* sub_tree = I.sub_tree tree [ name ] in
-             let hash = I.tree_hash sub_tree in
-             let acc = (name, hash) :: acc in
-             if visited hash then Lwt.return acc
-             else (
-               set_visit hash;
-               (* There cannot be a cycle *)
-               match kind with
-               | `Node -> (fold_tree_path [@ocaml.tailcall]) sub_tree acc
-               | `Contents -> (
-                   I.tree_content sub_tree >>= function
-                   | None -> assert false
-                   | Some data ->
-                       set_blob buf data;
-                       maybe_flush () >|= fun () -> acc ) ))
-           []
+    (*    let keys = List.sort (fun (a, _) (b, _) -> String.compare a b) keys in *)
+    let* keys =
+      Lwt_list.fold_left_s
+        (fun acc (name, kind) ->
+          let+ sub_tree = I.sub_tree tree [ name ] in
+          let hash = Store.Tree.hash sub_tree in
+          (name, kind, sub_tree, hash) :: acc)
+        [] keys
     in
-
+    Store.Tree.clear tree;
+    let* () =
+      Lwt_list.iter_s
+        (fun (_, kind, sub_tree, hash) ->
+          if visited hash then Lwt.return ()
+          else (
+            set_visit hash;
+            (* There cannot be a cycle *)
+            match kind with
+            | `Node -> (iter_tree [@ocaml.tailcall]) sub_tree
+            | `Contents -> (
+                I.tree_content sub_tree >>= function
+                | None -> assert false
+                | Some data ->
+                    set_blob buf data;
+                    maybe_flush () ) ))
+        keys
+    in
+    let sub_keys =
+      List.map
+        (fun (name, kind, _, hash) ->
+          match kind with
+          | `Node -> (name, `Node hash)
+          | `Contents -> (name, `Blob hash))
+        keys
+    in
     set_node buf sub_keys;
-    maybe_flush () >|= fun () -> ret
+    maybe_flush ()
   in
-  fold_tree_path tree [] >|= function [] -> () | _ -> assert false
+  iter_tree tree
 
 let dump tree fd =
-  let buf = Buffer.create 1_000_000 in
+  let buf = Buffer.create 10_000_000 in
   let written = ref 0 in
   let flush () =
     let contents = Buffer.contents buf in
-    Buffer.reset buf;
+    Buffer.clear buf;
     written := !written + String.length contents;
     Utils.write_string fd contents
   in
