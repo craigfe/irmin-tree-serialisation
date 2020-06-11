@@ -4,9 +4,9 @@ module Error_monad = Tezos_error_monad.Error_monad
 module Hash : sig
   include Irmin.Hash.S
 
-  val to_context_hash : t -> Context_hash.t
+  val of_bytes : bytes -> t
 
-  val of_context_hash : Context_hash.t -> t
+  val to_bytes : t -> bytes
 
   val of_hex_string : string -> t
 end = struct
@@ -21,6 +21,10 @@ end = struct
   let of_context_hash s = H.of_raw_string (Context_hash.to_string s)
 
   let to_context_hash h = Context_hash.of_string_exn (H.to_raw_string h)
+
+  let to_bytes t = Bytes.unsafe_of_string (H.to_raw_string t)
+
+  let of_bytes t = H.of_raw_string (Bytes.unsafe_to_string t)
 
   let pp ppf t = Context_hash.pp ppf (to_context_hash t)
 

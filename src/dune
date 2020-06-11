@@ -1,7 +1,9 @@
 (executable
  (name main)
  (public_name irmin-tree-serialisation)
+ (package irmin-tree-serialisation)
  (libraries
+   hashset
    digestif
    index
    irmin

@@ -14,11 +14,11 @@ module Data_encoding = struct
     let kind_encoding = string_enum [ ("node", `Node); ("blob", `Blob) ] in
     conv
       (function
-        | `Blob h -> (`Blob, Context_hash.to_bytes (Hash.to_context_hash h))
-        | `Node h -> (`Node, Context_hash.to_bytes (Hash.to_context_hash h)))
+        | `Blob h -> (`Blob, Hash.to_bytes h)
+        | `Node h -> (`Node, Hash.to_bytes h))
       (function
-        | `Blob, h -> `Blob (Hash.of_context_hash (Context_hash.of_bytes_exn h))
-        | `Node, h -> `Node (Hash.of_context_hash (Context_hash.of_bytes_exn h)))
+        | `Blob, h -> `Blob (Hash.of_bytes h)
+        | `Node, h -> `Node (Hash.of_bytes h))
       (obj2 (req "kind" kind_encoding) (req "value" bytes))
 
   let blob_encoding =
