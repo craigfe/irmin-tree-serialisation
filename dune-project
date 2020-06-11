@@ -15,6 +15,8 @@
 ")
  (documentation https://CraigFe.github.io/irmin-tree-serialisation/)
  (depends
+  (ocaml (>= 4.8.0))
   (irmin (= 2.1.0))
+  (tezos-crypto (= 7.1))
   fmt
   logs))

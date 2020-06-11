@@ -11,7 +11,9 @@ doc: "https://CraigFe.github.io/irmin-tree-serialisation/"
 bug-reports: "https://github.com/CraigFe/irmin-tree-serialisation/issues"
 depends: [
   "dune" {>= "2.0"}
+  "ocaml" {>= "4.8.0"}
   "irmin" {= "2.1.0"}
+  "tezos-crypto" {= "7.1"}
   "fmt"
   "logs"
 ]
