@@ -3,6 +3,7 @@
  (public_name irmin-tree-serialisation)
  (package irmin-tree-serialisation)
  (libraries
+   logs.fmt
    hashset
    digestif
    index

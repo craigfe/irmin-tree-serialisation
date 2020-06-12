@@ -85,68 +85,34 @@ module Tbl = struct
   let add t k = add t (of_hash k)
 end
 
-module G = Irmin.Private.Node.Graph (Store.Private.Node)
+module Node = Store.Private.Node
+module G = Irmin.Private.Node.Graph (Node)
 
 (* Folding through a node *)
-let fold_tree_path ~(written : int ref) ~(maybe_flush : unit -> unit Lwt.t) ~buf
-    tree =
-  (* Noting the visited hashes *)
-  let visited_hash = Tbl.create 100_000 in
-  let visited h = Tbl.mem visited_hash h in
-  let set_visit =
-    let total_visited = ref 0 in
-    fun h ->
-      Utils.display_progress ~refresh_rate:(!total_visited, 1_000) (fun m ->
-          m "Context: %dK elements, %dMiB written%!" (!total_visited / 1_000)
-            (!written / 1_048_576));
+let fold_tree_path ~(maybe_flush : unit -> unit Lwt.t) ~buf repo hash =
+  let n = Store.Private.Repo.node_t repo in
+  G.iter n ~min:[] ~max:[ hash ]
+    ~node:(fun _ value ->
+      let sub_keys =
+        List.rev_map
+          (fun (name, value) ->
+            match value with
+            | `Node hash -> (name, `Node hash)
+            | `Contents (hash, _) -> (name, `Blob hash))
+          value
+      in
+      set_node buf sub_keys;
+      maybe_flush ())
+    ~contents:(fun hash ->
+      Store.Private.Contents.find (Store.Private.Repo.contents_t repo) hash
+      >>= function
+      | None -> Lwt.return ()
+      | Some data ->
+          set_blob buf data;
+          maybe_flush ())
+    ()
 
-      incr total_visited;
-      Tbl.add visited_hash h;
-      ()
-  in
-  let rec iter_tree tree =
-    let* keys = I.tree_list tree in
-    (*    let keys = List.sort (fun (a, _) (b, _) -> String.compare a b) keys in *)
-    let* keys =
-      Lwt_list.fold_left_s
-        (fun acc (name, kind) ->
-          let+ sub_tree = I.sub_tree tree [ name ] in
-          let hash = Store.Tree.hash sub_tree in
-          (name, kind, sub_tree, hash) :: acc)
-        [] keys
-    in
-    Store.Tree.clear tree;
-    let* () =
-      Lwt_list.iter_s
-        (fun (_, kind, sub_tree, hash) ->
-          if visited hash then Lwt.return ()
-          else (
-            set_visit hash;
-            (* There cannot be a cycle *)
-            match kind with
-            | `Node -> (iter_tree [@ocaml.tailcall]) sub_tree
-            | `Contents -> (
-                I.tree_content sub_tree >>= function
-                | None -> assert false
-                | Some data ->
-                    set_blob buf data;
-                    maybe_flush () ) ))
-        keys
-    in
-    let sub_keys =
-      List.map
-        (fun (name, kind, _, hash) ->
-          match kind with
-          | `Node -> (name, `Node hash)
-          | `Contents -> (name, `Blob hash))
-        keys
-    in
-    set_node buf sub_keys;
-    maybe_flush ()
-  in
-  iter_tree tree
-
-let dump tree fd =
+let dump repo hash fd =
   let buf = Buffer.create 10_000_000 in
   let written = ref 0 in
   let flush () =
@@ -159,4 +125,4 @@ let dump tree fd =
     if (* true *) Buffer.length buf > 1_000_000 then flush ()
     else Lwt.return_unit
   in
-  fold_tree_path ~written ~maybe_flush ~buf tree
+  fold_tree_path ~maybe_flush ~buf repo hash
