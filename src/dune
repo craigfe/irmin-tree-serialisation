@@ -3,6 +3,7 @@
  (public_name irmin-tree-serialisation)
  (libraries
    digestif
+   rusage
    index
    irmin
    irmin-pack

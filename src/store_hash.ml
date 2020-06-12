@@ -9,6 +9,9 @@ module Hash : sig
   val of_context_hash : Context_hash.t -> t
 
   val of_hex_string : string -> t
+
+  val truncate : int -> t -> string
+  (** Truncate a hash to [n]-many bytes of entropy. *)
 end = struct
   module H = Digestif.Make_BLAKE2B (struct
     let digest_size = 32
@@ -23,6 +26,11 @@ end = struct
   let to_context_hash h = Context_hash.of_string_exn (H.to_raw_string h)
 
   let pp ppf t = Context_hash.pp ppf (to_context_hash t)
+
+  let truncate n h =
+    assert (n > 0 && n < 33);
+    let raw = H.to_raw_string h in
+    String.sub raw 0 n
 
   let of_string x =
     match Context_hash.of_b58check x with

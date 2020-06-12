@@ -36,10 +36,7 @@ module Utils = struct
 end
 
 module I = struct
-  let tree_list tree =
-    let+ ret = Store.Tree.list tree [] in
-    Fmt.epr "\ntree_list: %a\n" Fmt.(Dump.list (using fst string)) ret;
-    ret
+  let tree_list tree = Store.Tree.list tree []
 
   let sub_tree tree key =
     Store.Tree.get_tree tree key >|= fun subtree ->
@@ -65,7 +62,7 @@ let heap_log, statmemprof_log, event_log =
   and statmemprof = statfmt "statmemprof"
   and events = statfmt "events" in
 
-  Fmt.pf heap "sys time,total visited,minor words,major words\n";
+  Fmt.pf heap "sys time,total visited,minor (unpromoted),major,maxrss\n";
   Fmt.pf events "total_visited,type,systime_start,systime_end\n";
 
   Fmt.pr "This run has id `%Ld'\n" uid;
@@ -86,11 +83,14 @@ let fold_tree_path ~(written : int ref) ~(maybe_flush : unit -> unit Lwt.t) ~buf
             (!written / 1_048_576));
 
       ( if !total_visited mod 10_000 = 0 then
-        let Gc.{ major_words; minor_words; _ } = Gc.quick_stat () in
-        (* let hashtbl_words = Obj.reachable_words (Obj.repr visited_hash) in *)
-        Fmt.pf heap_log "%f,%d,%f,%f\n%!" (Sys.time ()) !total_visited
-          minor_words major_words
-        (* if !total_visited = 3_000_000 then memprof_active := true ; *) );
+        let Gc.{ major_words; minor_words; promoted_words; _ } =
+          Gc.quick_stat ()
+        in
+        let Rusage.{ maxrss; _ } = Rusage.(get Self) (* Result in kB *) in
+        Fmt.pf heap_log "%f,%d,%f,%f,%Ld\n%!" (Sys.time ()) !total_visited
+          ((minor_words -. promoted_words) *. 64. /. 1_000_000.)
+          (major_words *. 64. /. 1_000_000.)
+          (Int64.div maxrss 1_000L) );
 
       if !total_visited mod 100_000 = 0 then (
         let time_started = Sys.time () in
@@ -127,6 +127,7 @@ let fold_tree_path ~(written : int ref) ~(maybe_flush : unit -> unit Lwt.t) ~buf
                        set_blob buf data;
                        maybe_flush () >|= fun () -> acc ) ))
            []
+      >|= List.rev
     in
 
     set_node buf sub_keys;

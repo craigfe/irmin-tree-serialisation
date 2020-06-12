@@ -18,5 +18,6 @@
   (ocaml (>= 4.8.0))
   (irmin (= 2.1.0))
   (tezos-crypto (= 7.1))
+  rusage
   fmt
   logs))
