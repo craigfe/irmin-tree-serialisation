@@ -89,6 +89,9 @@ module type S = sig
     val force : t -> contents or_error Lwt.t
     (** [force t] forces evaluation of the lazy content value [t], or returns an
         error if no such value exists in the underlying repository. *)
+
+    val clear : t -> unit
+    (** [clear t] clears [t]'s cache. *)
   end
 
   val mem : t -> key -> bool Lwt.t
@@ -136,6 +139,9 @@ module type S = sig
     (** [bindings t] is the list of bindings in [t]. *)
 
     val clear : ?depth:int -> t -> unit
+    (** [clear ?depth t] clears all the cache in the tree [t] for subtrees with
+        a depth higher than [depth]. If [depth] is not set, all the subtrees are
+        cleared. *)
   end
 
   val mem_tree : t -> key -> bool Lwt.t

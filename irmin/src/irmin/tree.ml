@@ -491,7 +491,7 @@ module Make (P : S.PRIVATE) = struct
       cnt.node_hash <- cnt.node_hash + 1;
       let k = P.Node.Key.hash v in
       t.info.hash <- Some k;
-      k
+      match t.info.hash with Some k -> k | None -> k
 
     let hash ~value_of_adds ~value_of_map t =
       match cached_hash t with

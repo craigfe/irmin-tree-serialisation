@@ -16,25 +16,24 @@
 
 include Type_core
 
-let pre_hash t x =
-  let rec aux : type a. a t -> a bin_seq =
-   fun t v k ->
-    match t with
-    | Self s -> aux s.self_fix v k
-    | Map m -> aux m.x (m.g v) k
-    | Custom c -> c.pre_hash v k
-    | _ -> Type_binary.encode_bin ~headers:false t v k
+let pre_hash t =
+  let rec aux : type a. a t -> a bin_seq = function
+    | Self s -> aux s.self_fix
+    | Map m -> fun v -> aux m.x (m.g v)
+    | Custom c -> c.pre_hash
+    | t -> Type_binary.encode_bin ~headers:false t
   in
-  aux t x
+  aux t
 
-let short_hash t ?seed x =
-  match t with
-  | Custom c -> c.short_hash ?seed x
-  | _ ->
-      let seed = match seed with None -> 0 | Some t -> t in
-      let h = ref seed in
-      pre_hash t x (fun s -> h := Hashtbl.seeded_hash !h s);
-      !h
+let short_hash = function
+  | Custom c -> c.short_hash
+  | t ->
+      let pre_hash = pre_hash t in
+      fun ?seed x ->
+        let seed = match seed with None -> 0 | Some t -> t in
+        let h = ref seed in
+        pre_hash x (fun s -> h := Hashtbl.seeded_hash !h s);
+        !h
 
 (* Combinators for Irmin types *)
 
