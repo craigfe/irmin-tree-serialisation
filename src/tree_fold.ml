@@ -1,9 +1,7 @@
 open Lwt.Infix
 open Serialise.Data_encoding
 
-let ( let+ ) x f = Lwt.map f x
-
-let ( let* ) = Lwt.bind
+let unstage x = x
 
 module Utils = struct
   let hide_progress_line s =
@@ -36,11 +34,6 @@ module Utils = struct
 end
 
 module I = struct
-  let tree_list tree = Store.Tree.list tree []
-
-  let sub_tree tree key =
-    Store.Tree.get_tree tree key >|= fun subtree -> subtree
-
   let tree_hash = function
     | `Node tree -> `Node (Store.Tree.hash tree)
     | `Contents (b, _) -> `Blob (Store.Contents.hash b)
@@ -78,7 +71,9 @@ module Tbl = struct
     let equal x y = String.equal x y
   end)
 
-  let of_hash h = String.sub (Irmin.Type.to_bin_string Store.Hash.t h) 0 5
+  let to_bin_string = Irmin.Type.(unstage (to_bin_string Store.Hash.t))
+
+  let of_hash h = String.sub (to_bin_string h) 0 5
 
   let mem t k = mem t (of_hash k)
 
@@ -87,32 +82,68 @@ end
 
 module Node = Store.Private.Node
 module G = Irmin.Private.Node.Graph (Node)
+module T = Store.Tree
 
 (* Folding through a node *)
-let fold_tree_path ~(maybe_flush : unit -> unit Lwt.t) ~buf repo hash =
-  let n = Store.Private.Repo.node_t repo in
-  G.iter n ~min:[] ~max:[ hash ]
-    ~node:(fun _ value ->
-      let sub_keys =
-        List.rev_map
-          (fun (name, value) ->
-            match value with
-            | `Node hash -> (name, `Node hash)
-            | `Contents (hash, _) -> (name, `Blob hash))
-          value
-      in
-      set_node buf sub_keys;
-      maybe_flush ())
-    ~contents:(fun hash ->
-      Store.Private.Contents.find (Store.Private.Repo.contents_t repo) hash
-      >>= function
-      | None -> Lwt.return ()
-      | Some data ->
-          set_blob buf data;
-          maybe_flush ())
-    ()
+let fold_tree_path ~(written : int ref) ~(maybe_flush : unit -> unit Lwt.t) ~buf
+    tree =
+  (* Noting the visited hashes *)
+  let visited_hash = Tbl.create 100_000 in
+  let visited h = Tbl.mem visited_hash h in
+  let set_visit =
+    let total_visited = ref 0 in
+    fun h ->
+      Utils.display_progress ~refresh_rate:(!total_visited, 1_000) (fun m ->
+          m "Context: %dK elements, %dMiB written%!" (!total_visited / 1_000)
+            (!written / 1_048_576));
 
-let dump repo hash fd =
+      incr total_visited;
+      Tbl.add visited_hash h;
+      ()
+  in
+  let hash = function
+    | `Contents (c, _) -> T.Contents.hash c
+    | `Node n -> T.Node.hash n
+  in
+  let rec iter_node node =
+    T.Node.bindings node >>= function
+    | Error _ -> Lwt.return ()
+    | Ok keys ->
+        T.Node.clear node;
+        Lwt_list.iter_s
+          (fun (_, kind) ->
+            let hash = hash kind in
+            if visited hash then Lwt.return ()
+            else (
+              set_visit hash;
+              (* There cannot be a cycle *)
+              match kind with
+              | `Node sub_node -> (iter_node [@ocaml.tailcall]) sub_node
+              | `Contents (data, _) -> (
+                  T.Contents.force data >>= function
+                  | Error _ -> Lwt.return ()
+                  | Ok data ->
+                      set_blob buf data;
+                      maybe_flush () ) ))
+          keys
+        >>= fun () ->
+        let sub_keys =
+          List.map
+            (fun (name, kind) ->
+              let hash = hash kind in
+              match kind with
+              | `Node _ -> (name, `Node hash)
+              | `Contents _ -> (name, `Blob hash))
+            keys
+        in
+        set_node buf sub_keys;
+        maybe_flush ()
+  in
+  match T.destruct tree with
+  | `Node node -> iter_node node
+  | `Contents _ -> Lwt.return_unit
+
+let dump tree fd =
   let buf = Buffer.create 10_000_000 in
   let written = ref 0 in
   let flush () =
@@ -125,4 +156,4 @@ let dump repo hash fd =
     if (* true *) Buffer.length buf > 1_000_000 then flush ()
     else Lwt.return_unit
   in
-  fold_tree_path ~maybe_flush ~buf repo hash
+  fold_tree_path ~written ~maybe_flush ~buf tree

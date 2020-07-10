@@ -1,3 +1,5 @@
+open Lwt.Infix
+
 let root = "data/context"
 
 let store_hash_hex =
@@ -8,12 +10,11 @@ let output = "/tmp/data"
 let ( let* ) = Lwt.bind
 
 let main () =
-  let* repo = Store.Repo.v (Irmin_pack.config ~readonly:false root) in
+  Store.Repo.v (Irmin_pack.config ~readonly:false root) >>= fun repo ->
   let hash = Store_hash.Hash.of_hex_string store_hash_hex in
-  let* fd =
-    Lwt_unix.openfile output Lwt_unix.[ O_WRONLY; O_CREAT; O_TRUNC ] 0o666
-  in
-  Tree_fold.dump repo hash fd
+  Store.Tree.of_hash repo hash >|= Option.get >>= fun tree ->
+  Lwt_unix.openfile output Lwt_unix.[ O_WRONLY; O_CREAT; O_TRUNC ] 0o666
+  >>= fun fd -> Tree_fold.dump tree fd
 
 let reporter ?(prefix = "") () =
   let report src level ~over k msgf =
@@ -35,6 +36,7 @@ let reporter ?(prefix = "") () =
   { Logs.report }
 
 (*
+
 let () =
   Logs.set_level (Some Logs.Debug);
   Logs.set_reporter (reporter ())
