@@ -122,9 +122,9 @@ module Make (P : S.PRIVATE) = struct
 
     let v r ~info ~parents tree =
       P.Repo.batch r @@ fun contents_t node_t commit_t ->
-      ( match Tree.destruct tree with
+      (match Tree.destruct tree with
       | `Node t -> Tree.export r contents_t node_t t
-      | `Contents _ -> Lwt.fail_invalid_arg "cannot add contents at the root" )
+      | `Contents _ -> Lwt.fail_invalid_arg "cannot add contents at the root")
       >>= fun node ->
       let v = P.Commit.Val.v ~info ~node ~parents in
       P.Commit.add commit_t v >|= fun h -> { r; h; v }
@@ -217,7 +217,7 @@ module Make (P : S.PRIVATE) = struct
           | Some h -> (
               Commit.of_hash repo h >|= function
               | None -> acc
-              | Some h -> h :: acc ))
+              | Some h -> h :: acc))
         [] bs
 
     let export ?(full = true) ?depth ?(min = []) ?(max = `Head) t =
@@ -225,9 +225,9 @@ module Make (P : S.PRIVATE) = struct
           f "export depth=%s full=%b min=%d max=%s"
             (match depth with None -> "<none>" | Some d -> string_of_int d)
             full (List.length min)
-            ( match max with
+            (match max with
             | `Head -> "heads"
-            | `Max m -> string_of_int (List.length m) ));
+            | `Max m -> string_of_int (List.length m)));
       (match max with `Head -> heads t | `Max m -> Lwt.return m)
       >>= fun max ->
       P.Slice.empty () >>= fun slice ->
@@ -329,7 +329,7 @@ module Make (P : S.PRIVATE) = struct
             !commits
           >|= fun () -> Ok ())
         (function
-          | Import_error e -> Lwt.return_error (`Msg e)
+          | Import_error e -> Lwt.return (Error (`Msg e))
           | e -> Fmt.kstrf Lwt.fail_invalid_arg "impot error: %a" Fmt.exn e)
   end
 
@@ -354,12 +354,12 @@ module Make (P : S.PRIVATE) = struct
   let status t =
     match t.head_ref with
     | `Branch b -> `Branch b
-    | `Head h -> ( match !h with None -> `Empty | Some c -> `Commit c )
+    | `Head h -> ( match !h with None -> `Empty | Some c -> `Commit c)
 
   let head_ref t =
     match t.head_ref with
     | `Branch t -> `Branch t
-    | `Head h -> ( match !h with None -> `Empty | Some h -> `Head h )
+    | `Head h -> ( match !h with None -> `Empty | Some h -> `Head h)
 
   let branch t =
     match head_ref t with
@@ -434,7 +434,7 @@ module Make (P : S.PRIVATE) = struct
             if Tree.equal vx vy then skip_key key
             else (
               changed_key key;
-              fn @@ `Updated ((x, vx), (y, vy)) ) )
+              fn @@ `Updated ((x, vx), (y, vy))))
 
   let head t =
     let h =
@@ -444,7 +444,7 @@ module Make (P : S.PRIVATE) = struct
       | `Branch name -> (
           Branch_store.find (branch_t t) name >>= function
           | None -> Lwt.return_none
-          | Some h -> Commit.of_hash t.repo h )
+          | Some h -> Commit.of_hash t.repo h)
     in
     h >|= fun h ->
     Log.debug (fun f -> f "Head.find -> %a" Fmt.(option Commit.pp_hash) h);
@@ -463,7 +463,7 @@ module Make (P : S.PRIVATE) = struct
             let n = Tree.import_no_check (repo t) (Commit.node h) in
             let tree = Tree.of_node n in
             t.tree <- Some (h, tree);
-            Some (h, tree) )
+            Some (h, tree))
 
   let tree t =
     tree_and_head t >|= function
@@ -474,7 +474,7 @@ module Make (P : S.PRIVATE) = struct
     | `Removed x -> (
         Commit.of_hash repo x >>= function
         | None -> Lwt.return_unit
-        | Some x -> fn (`Removed x) )
+        | Some x -> fn (`Removed x))
     | `Updated (x, y) -> (
         Commit.of_hash repo x >>= fun x ->
         Commit.of_hash repo y >>= fun y ->
@@ -482,11 +482,11 @@ module Make (P : S.PRIVATE) = struct
         | None, None -> Lwt.return_unit
         | Some x, None -> fn (`Removed x)
         | None, Some y -> fn (`Added y)
-        | Some x, Some y -> fn (`Updated (x, y)) )
+        | Some x, Some y -> fn (`Updated (x, y)))
     | `Added x -> (
         Commit.of_hash repo x >>= function
         | None -> Lwt.return_unit
-        | Some x -> fn (`Added x) )
+        | Some x -> fn (`Added x))
 
   let watch t ?init fn =
     branch t >>= function
@@ -531,7 +531,7 @@ module Make (P : S.PRIVATE) = struct
           (* [head] is protected by [t.lock]. *)
           if Commit.equal_opt !head test then (
             head := set;
-            Lwt.return_true )
+            Lwt.return_true)
           else Lwt.return_false
       | `Branch name ->
           let h = function None -> None | Some c -> Some c.Commit.h in
@@ -553,7 +553,7 @@ module Make (P : S.PRIVATE) = struct
                 Commit.pp_hash new_head);
           if Commit.equal new_head old_head then
             (* we only update if there is a change *)
-            Lwt.return_error `No_change
+            Lwt.return (Error `No_change)
           else
             H.lcas (history_t t) ?max_depth ?n new_head.Commit.h
               old_head.Commit.h
@@ -562,8 +562,8 @@ module Make (P : S.PRIVATE) = struct
                 (* we only update if new_head > old_head *)
                 test_and_set t ~test:(Some old_head) ~set:(Some new_head)
                 >|= return
-            | Ok _ -> Lwt.return_error `Rejected
-            | Error e -> Lwt.return_error (e :> ff_error) )
+            | Ok _ -> Lwt.return (Error `Rejected)
+            | Error e -> Lwt.return (Error (e :> ff_error)))
 
     (* Merge two commits:
        - Search for common ancestors
@@ -594,11 +594,11 @@ module Make (P : S.PRIVATE) = struct
     let done_once = ref false in
     let rec aux i =
       if !done_once && i > retries then
-        Lwt.return_error (`Too_many_retries retries)
+        Lwt.return (Error (`Too_many_retries retries))
       else
         fn () >>= function
-        | Ok true -> Lwt.return_ok ()
-        | Error e -> Lwt.return_error e
+        | Ok true -> Lwt.return (Ok ())
+        | Error e -> Lwt.return (Error e)
         | Ok false ->
             done_once := true;
             aux (i + 1)
@@ -618,7 +618,7 @@ module Make (P : S.PRIVATE) = struct
               (* [head] is protected by [t.lock] *)
               head := Some c;
               t.tree <- Some tree;
-              Lwt.return_true ))
+              Lwt.return_true))
     | `Branch name ->
         (* concurrent handlers and/or process can modify the
            branch. Need to check that we are still working on the same
@@ -645,7 +645,7 @@ module Make (P : S.PRIVATE) = struct
           Type.(pp (option Tree.tree_t))
           t
 
-  let write_error e : ('a, write_error) result Lwt.t = Lwt.return_error e
+  let write_error e : ('a, write_error) result Lwt.t = Lwt.return (Error e)
 
   let err_test v = write_error (`Test_was v)
 
@@ -680,17 +680,17 @@ module Make (P : S.PRIVATE) = struct
     f s.tree >>= fun new_tree ->
     (* if no change and [allow_empty = true] then, do nothing *)
     if same_tree s.tree new_tree && (not allow_empty) && s.head <> None then
-      Lwt.return_ok true
+      Lwt.return (Ok true)
     else
       merge_tree s.root key ~current_tree:s.tree ~new_tree >>= function
-      | Error e -> Lwt.return_error e
+      | Error e -> Lwt.return (Error e)
       | Ok root ->
           let info = info () in
           let parents = match parents with None -> s.parents | Some p -> p in
           let parents = List.map Commit.hash parents in
           Commit.v (repo t) ~info ~parents root >>= fun c ->
-          add_commit t s.head (c, root_tree (Tree.destruct root))
-          >>= Lwt.return_ok
+          add_commit t s.head (c, root_tree (Tree.destruct root)) >>= fun r ->
+          Lwt.return (Ok r)
 
   let ok x = Ok x
 
@@ -825,7 +825,7 @@ module Make (P : S.PRIVATE) = struct
             | Error (`Test_was tr) when retries > 0 && n <= retries ->
                 done_once := true;
                 aux (n + 1) tr
-            | e -> Lwt.return e )
+            | e -> Lwt.return e)
         | `Merge, _ -> (
             merge_tree ~old:old_tree ~retries ?allow_empty ?parents ~info t key
               new_tree
@@ -839,7 +839,7 @@ module Make (P : S.PRIVATE) = struct
                  | None -> Lwt.return_none
                  | Some (_, tr) -> Tree.find_tree (tr :> tree) key)
                 >>= fun old_tree -> aux (n + 1) old_tree
-            | Error e -> write_error e )
+            | Error e -> write_error e)
     in
     find_tree t key >>= fun old_tree -> aux 0 old_tree
 
@@ -893,7 +893,7 @@ module Make (P : S.PRIVATE) = struct
     | Some c -> (
         Commit.of_hash t.repo c >>= function
         | None -> Lwt.fail_invalid_arg "invalid commit"
-        | Some c -> Head.merge ~into:t ~info ?max_depth ?n c )
+        | Some c -> Head.merge ~into:t ~info ?max_depth ?n c)
 
   let merge_with_commit t ~info ?max_depth ?n other =
     Head.merge ~into:t ~info ?max_depth ?n other
@@ -932,7 +932,7 @@ module Make (P : S.PRIVATE) = struct
       if Src.nb_vertex g = 1 then
         match Src.vertex g with
         | [ v ] -> (
-            f v >|= function Some v -> Dst.add_vertex t v | None -> t )
+            f v >|= function Some v -> Dst.add_vertex t v | None -> t)
         | _ -> assert false
       else
         Src.fold_edges
@@ -1012,7 +1012,7 @@ module Make (P : S.PRIVATE) = struct
                   match (e, current_value) with
                   | Some x, Some y -> not (Type.equal Contents.t x y)
                   | Some _, None -> true
-                  | _, _ -> false )
+                  | _, _ -> false)
               | None -> Lwt.return_false)
             parents
           >>= fun found -> if found then search (current :: acc) else search acc

@@ -25,7 +25,7 @@ type conflict = [ `Conflict of string ]
 
 type 'a promise = unit -> ('a option, conflict) result Lwt.t
 
-let promise t : 'a promise = fun () -> Lwt.return_ok (Some t)
+let promise t : 'a promise = fun () -> Lwt.return (Ok (Some t))
 
 let memo fn =
   let r = ref None in
@@ -49,10 +49,10 @@ let conflict fmt =
   ksprintf
     (fun msg ->
       Log.debug (fun f -> f "conflict: %s" msg);
-      Lwt.return_error (`Conflict msg))
+      Lwt.return (Error (`Conflict msg)))
     fmt
 
-let bind x f = x >>= function Error e -> Lwt.return_error e | Ok x -> f x
+let bind x f = x >>= function Error e -> Lwt.return (Error e) | Ok x -> f x
 
 let map f x = x >|= function Error _ as x -> x | Ok x -> Ok (f x)
 
@@ -64,11 +64,11 @@ let map_promise f t () =
 
 let bind_promise t f () =
   t () >>= function
-  | Error e -> Lwt.return_error e
-  | Ok None -> Lwt.return_ok None
+  | Error e -> Lwt.return (Error e)
+  | Ok None -> Lwt.return (Ok None)
   | Ok (Some a) -> f a ()
 
-let ok x = Lwt.return_ok x
+let ok x = Lwt.return (Ok x)
 
 module Infix = struct
   let ( >>=* ) = bind
@@ -142,8 +142,7 @@ let option (type a) ((a, t) : a t) : a option t =
               | Some (Some o) ->
                   let pp = Type.pp a and ( = ) = Type.equal a in
                   Log.debug (fun f -> f "option old=%a" pp o);
-                  if x = o then ok (Some x) else conflict "option: add/del" ) )
-  )
+                  if x = o then ok (Some x) else conflict "option: add/del")) )
 
 let pair (da, a) (db, b) =
   let dt = Type.pair da db in
@@ -205,10 +204,10 @@ let alist_iter2 compare_k f l1 l2 =
         | x ->
             if x < 0 then (
               f k1 (`Left v1);
-              aux t1 l2 )
+              aux t1 l2)
             else (
               f k2 (`Right v2);
-              aux l1 t2 ) )
+              aux l1 t2))
   in
   aux l1 l2
 

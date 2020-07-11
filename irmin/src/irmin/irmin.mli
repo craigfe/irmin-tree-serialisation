@@ -280,7 +280,7 @@ module Private : sig
       S with type hash = K.t and type step = P.step and type metadata = M.t
 
     (** v1 serialisation *)
-    module V1 (S : S) : sig
+    module V1 (S : S with type step = string) : sig
       include
         S
           with type hash = S.hash
@@ -589,7 +589,7 @@ module Sync (S : S) : SYNC with type db = S.t and type commit = S.commit
           Uri.of_string (Store.remote Sys.argv.(1))
         else (
           Printf.eprintf "Usage: sync [uri]\n%!";
-          exit 1 )
+          exit 1)
 
       let test () =
         S.Repo.v config >>= S.master >>= fun t ->
@@ -634,7 +634,7 @@ module Sync (S : S) : SYNC with type db = S.t and type commit = S.commit
           | ts :: msg_sects -> (
               let message = String.concat "\t" msg_sects in
               try Ok { timestamp = int_of_string ts; message }
-              with Failure e -> Error (`Msg e) )
+              with Failure e -> Error (`Msg e))
 
         let t =
           let open Irmin.Type in

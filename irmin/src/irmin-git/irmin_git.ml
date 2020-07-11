@@ -122,7 +122,7 @@ struct
           G.read t key >>= function
           | Error `Not_found -> Lwt.return_false
           | Error e -> Fmt.kstrf Lwt.fail_with "%a" G.pp_error e
-          | Ok v -> Lwt.return (V.type_eq (G.Value.kind v)) )
+          | Ok v -> Lwt.return (V.type_eq (G.Value.kind v)))
 
     let find t key =
       Log.debug (fun l -> l "find %a" pp_key key);
@@ -161,7 +161,7 @@ struct
             let str = G.Value.Blob.to_string b in
             match Irmin.Type.of_string C.t str with
             | Ok x -> Some x
-            | Error (`Msg e) -> Fmt.invalid_arg "error %s" e )
+            | Error (`Msg e) -> Fmt.invalid_arg "error %s" e)
         | _ -> None
 
       let to_git b =
@@ -180,10 +180,9 @@ struct
         | Error _ -> assert false
         | Ok s -> s
 
-      let encode_bin ~headers:_ =
-        Irmin.Type.stage (fun (t : t) k -> k (to_bin t))
+      let encode_bin = Irmin.Type.stage (fun (t : t) k -> k (to_bin t))
 
-      let decode_bin ~headers:_ =
+      let decode_bin =
         Irmin.Type.stage @@ fun buf off ->
         Log.debug (fun l -> l "Content.decode_bin");
         let buf = Cstruct.of_string buf in
@@ -192,10 +191,10 @@ struct
         | Ok g -> (
             match GitContents.of_git g with
             | Some g -> (off + Cstruct.len buf, g)
-            | None -> failwith "wrong object kind" )
+            | None -> failwith "wrong object kind")
         | Error e -> Fmt.invalid_arg "error %a" Raw.DecoderRaw.pp_error e
 
-      let size_of ~headers:_ = Irmin.Type.stage (fun _ -> None)
+      let size_of = Irmin.Type.stage (fun _ -> None)
 
       let t = Irmin.Type.like ~bin:(encode_bin, decode_bin, size_of) t
     end
@@ -265,7 +264,7 @@ struct
               match perm with
               | `Dir -> Some (`Node node)
               | `Commit -> None (* FIXME *)
-              | #Metadata.t as p -> Some (`Contents (node, p)) )
+              | #Metadata.t as p -> Some (`Contents (node, p)))
         in
         aux (G.Value.Tree.to_list t)
 
@@ -344,12 +343,12 @@ struct
         | Error _ -> assert false
         | Ok s -> s
 
-      let encode_bin ~headers:_ =
+      let encode_bin =
         Irmin.Type.stage @@ fun (t : t) k ->
         Log.debug (fun l -> l "Tree.encode_bin");
         k (to_bin t)
 
-      let decode_bin ~headers:_ =
+      let decode_bin =
         Irmin.Type.stage @@ fun buf off ->
         Log.debug (fun l -> l "Tree.decode_bin");
         let buf = Cstruct.of_string buf in
@@ -359,7 +358,7 @@ struct
         | Ok _ -> failwith "wrong object kind"
         | Error e -> Fmt.invalid_arg "error %a" Raw.DecoderRaw.pp_error e
 
-      let size_of ~headers:_ = Irmin.Type.stage (fun _ -> None)
+      let size_of = Irmin.Type.stage (fun _ -> None)
 
       let t =
         Irmin.Type.map ~bin:(encode_bin, decode_bin, size_of) N.t of_n to_n
@@ -461,12 +460,12 @@ struct
         | Error _ -> assert false
         | Ok s -> s
 
-      let encode_bin ~headers:_ =
+      let encode_bin =
         Irmin.Type.stage @@ fun (t : t) k ->
         Log.debug (fun l -> l "Commit.encode_bin");
         k (to_bin t)
 
-      let decode_bin ~headers:_ =
+      let decode_bin =
         Irmin.Type.stage @@ fun buf off ->
         Log.debug (fun l -> l "Commit.decode_bin");
         let buf = Cstruct.of_string buf in
@@ -476,7 +475,7 @@ struct
         | Ok _ -> failwith "wrong object kind"
         | Error e -> Fmt.invalid_arg "error %a" Raw.DecoderRaw.pp_error e
 
-      let size_of ~headers:_ = Irmin.Type.stage (fun _ -> None)
+      let size_of = Irmin.Type.stage (fun _ -> None)
 
       let t =
         Irmin.Type.map ~bin:(encode_bin, decode_bin, size_of) C.t of_c to_c
@@ -616,21 +615,21 @@ functor
       let dot_git = G.dotgit t in
       let write_head head =
         let head = G.Reference.Ref head in
-        (( if G.has_global_checkout then
-           Lwt_mutex.with_lock m (fun () -> G.Ref.write t G.Reference.head head)
-         else Lwt.return_ok () )
+        ((if G.has_global_checkout then
+          Lwt_mutex.with_lock m (fun () -> G.Ref.write t G.Reference.head head)
+         else Lwt.return (Ok ()))
          >|= function
          | Error e -> Log.err (fun l -> l "Cannot create HEAD: %a" G.pp_error e)
          | Ok () -> ())
         >|= fun () -> head
       in
-      ( match head with
+      (match head with
       | Some h -> write_head h
       | None -> (
           G.Ref.read t G.Reference.head >>= function
           | Error `Not_found -> write_head (git_of_branch B.master)
           | Error e -> Fmt.kstrf Lwt.fail_with "%a" G.pp_error e
-          | Ok r -> Lwt.return r ) )
+          | Ok r -> Lwt.return r))
       >|= fun git_head ->
       let w =
         try Hashtbl.find watches (G.dotgit t)
@@ -660,7 +659,7 @@ functor
 
         (* FIXME G.write_index t.t gk *)
         let _ = gk in
-        Lwt.return_unit )
+        Lwt.return_unit)
       else Lwt.return_unit
 
     let pp_branch = Irmin.Type.pp B.t
@@ -701,25 +700,25 @@ functor
            | Ok x -> Lwt.return_some x
            | Error e -> Fmt.kstrf Lwt.fail_with "%a" G.pp_error e)
           >>= fun x ->
-          ( if not (eq_head_contents_opt x (c test)) then Lwt.return_false
+          (if not (eq_head_contents_opt x (c test)) then Lwt.return_false
           else
             match c set with
             | None -> G.Ref.remove t.t gr >>= ok
-            | Some h -> G.Ref.write t.t gr h >>= ok )
+            | Some h -> G.Ref.write t.t gr h >>= ok)
           >>= fun b ->
           (if b then W.notify t.w r set else Lwt.return_unit) >>= fun () ->
-          ( if
-            (* We do not protect [write_index] because it can take a long
-               time and we don't want to hold the lock for too long. Would
-               be safer to grab a lock, although the expanded filesystem
-               is not critical for Irmin consistency (it's only a
-               convenience for the user). *)
-            b
-          then
-            match set with
-            | None -> Lwt.return_unit
-            | Some v -> write_index t gr v
-          else Lwt.return_unit )
+          (if
+           (* We do not protect [write_index] because it can take a long
+              time and we don't want to hold the lock for too long. Would
+              be safer to grab a lock, although the expanded filesystem
+              is not critical for Irmin consistency (it's only a
+              convenience for the user). *)
+           b
+         then
+           match set with
+           | None -> Lwt.return_unit
+           | Some v -> write_index t gr v
+          else Lwt.return_unit)
           >|= fun () -> b)
 
     let close _ = Lwt.return_unit
@@ -772,7 +771,7 @@ struct
     | Error e -> Fmt.kstrf (fun e -> Error (`Msg e)) "%a" S.pp_error e
     | Ok res -> (
         Log.debug (fun f -> f "fetch result: %a" S.pp_fetch_one res);
-        match res with `Sync refs -> result refs | `AlreadySync -> Ok None )
+        match res with `Sync refs -> result refs | `AlreadySync -> Ok None)
 
   let push t ?depth:_ e br =
     let uri = S.Endpoint.uri e in
@@ -944,7 +943,7 @@ functor
       if !(t.closed) then Lwt.return_unit
       else (
         t.closed := true;
-        S.close t.t )
+        S.close t.t)
   end
 
 module Make_ext

@@ -17,13 +17,15 @@ depends: [
   "dune"       {>= "1.8.0"}
   "irmin"      {>= "2.2.0"}
   "index"      {>= "1.2.1"}
+  "fmt"
+  "logs"
   "lwt"
   "irmin-test" {with-test & >= "2.2.0"}
   "alcotest-lwt" {with-test}
 ]
 
 pin-depends: [
-  "index.dev" "git+https://github.com/mirage/index#9717194feb57c27cac9ad993aaf24a64dc5b64a3"
+  "index.dev" "git+https://github.com/mirage/index#bd2c09387053cb893fcbb41d9833a09460899cc6"
 ]
 
 synopsis: "Irmin backend which stores values in a pack file"

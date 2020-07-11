@@ -236,7 +236,7 @@ struct
     let merge = merge_value t merge_key in
     let read = function
       | None -> Lwt.return S.Val.empty
-      | Some k -> ( find t k >|= function None -> S.Val.empty | Some v -> v )
+      | Some k -> ( find t k >|= function None -> S.Val.empty | Some v -> v)
     in
     let add v =
       if S.Val.is_empty v then Lwt.return_none
@@ -292,7 +292,7 @@ module Graph (S : S.NODE_STORE) = struct
   let pp_path = Type.pp S.Path.t
 
   let pred t = function
-    | `Node k -> ( S.find t k >|= function None -> [] | Some v -> edges v )
+    | `Node k -> ( S.find t k >|= function None -> [] | Some v -> edges v)
     | _ -> Lwt.return_nil
 
   let closure t ~min ~max =
@@ -306,13 +306,18 @@ module Graph (S : S.NODE_STORE) = struct
 
   let ignore_lwt _ = Lwt.return_unit
 
-  let iter t ~min ~max ?(node = ignore_lwt) ?(edge = fun _ -> ignore_lwt)
-      ?(skip = fun _ -> Lwt.return_false) ?(rev = true) () =
+  let iter t ~min ~max ?(node = ignore_lwt) ?(contents = ignore_lwt)
+      ?(edge = fun _ -> ignore_lwt) ?(skip = fun _ -> Lwt.return_false)
+      ?(rev = true) () =
     Log.debug (fun f ->
         f "iter on closure min=%a max=%a" pp_keys min pp_keys max);
     let min = List.rev_map (fun x -> `Node x) min in
     let max = List.rev_map (fun x -> `Node x) max in
-    let node = function `Node x -> node x | _ -> Lwt.return_unit in
+    let node = function
+      | `Node x -> node x
+      | `Contents (c, m) -> contents (c, m)
+      | `Branch _ | `Commit _ -> Lwt.return_unit
+    in
     let edge n pred =
       match (n, pred) with
       | `Node src, `Node dst -> edge src dst
@@ -335,7 +340,7 @@ module Graph (S : S.NODE_STORE) = struct
       | Some (h, tl) -> (
           find_step t node h >>= function
           | (None | Some (`Contents _)) as x -> Lwt.return x
-          | Some (`Node node) -> aux node tl )
+          | Some (`Node node) -> aux node tl)
     in
     aux node path
 
@@ -344,10 +349,10 @@ module Graph (S : S.NODE_STORE) = struct
   let map_one t node f label =
     Log.debug (fun f -> f "map_one %a" Type.(pp Path.step_t) label);
     let old_key = S.Val.find node label in
-    ( match old_key with
+    (match old_key with
     | None | Some (`Contents _) -> Lwt.return S.Val.empty
     | Some (`Node k) -> (
-        S.find t k >|= function None -> S.Val.empty | Some v -> v ) )
+        S.find t k >|= function None -> S.Val.empty | Some v -> v))
     >>= fun old_node ->
     f old_node >>= fun new_node ->
     if Type.equal S.Val.t old_node new_node then Lwt.return node
@@ -373,7 +378,7 @@ module Graph (S : S.NODE_STORE) = struct
     | None -> (
         match n with
         | `Node n -> Lwt.return n
-        | `Contents _ -> failwith "TODO: Node.add" )
+        | `Contents _ -> failwith "TODO: Node.add")
 
   let rdecons_exn path =
     match Path.rdecons path with
@@ -397,7 +402,29 @@ module Graph (S : S.NODE_STORE) = struct
   let value_t = S.Val.value_t
 end
 
-module V1 (N : S.NODE) = struct
+(* OK: ASSERT node to_bin_string:
+   "
+\000\000\000\000\000\000\000\002
+\000\000\000\000\000\000\000\003foo
+\255\000\000\000\000\000\000\000
+\020\005\254@WS\022o\018UY\231\201\172U\134T\241\007\199\233
+\000\000\000\000\000\000\000\000\000\003bar
+\000\000
+\255\000\000\000\000\000\000\000
+\020:\245\172\213`vT\179\167\031\015\158\018\195\026\023i\025s&"
+
+KO: ASSERT node to_bin_string:
+   "
+\000\000\000\000\000\000\000\002
+\000\000\000\000\000\000\000\003foo
+\255\000\000\000\000\000\000\000
+\020\2189\163\238^kK\r2U\191\239\149`\024\144\175\216\007\t
+\000\000\000\000\000\000\000\000\000\003bar
+\000\000
+\255\000\000\000\000\000\000\000
+\020b\205\183\002\015\249\229\170d,=@f\149\r\209\240\031M" *)
+
+module V1 (N : S.NODE with type step = string) = struct
   module K = struct
     let h = Type.string_of `Int64
 
@@ -405,16 +432,16 @@ module V1 (N : S.NODE) = struct
 
     let of_bin_string = Type.(unstage (of_bin_string N.hash_t))
 
-    let size_of ~headers:_ =
-      let size_of = Type.(unstage (size_of ~headers:true h)) in
+    let size_of =
+      let size_of = Type.(unstage (size_of h)) in
       Type.stage (fun x -> size_of (to_bin_string x))
 
-    let encode_bin ~headers:_ =
-      let encode_bin = Type.(unstage (encode_bin ~headers:true h)) in
+    let encode_bin =
+      let encode_bin = Type.(unstage (encode_bin h)) in
       Type.stage @@ fun e k -> encode_bin (to_bin_string e) k
 
-    let decode_bin ~headers:_ =
-      let decode_bin = Type.(unstage (decode_bin ~headers:true h)) in
+    let decode_bin =
+      let decode_bin = Type.(unstage (decode_bin h)) in
       Type.stage @@ fun buf off ->
       let n, v = decode_bin buf off in
       ( n,
@@ -465,9 +492,11 @@ module V1 (N : S.NODE) = struct
     let n = N.remove t.n k in
     if t.n == n then t else { n; entries = N.list n }
 
-  let step_to_bin_string = Type.(unstage (to_bin_string N.step_t))
+  let v1_step = Type.string_of `Int64
 
-  let step_of_bin_string = Type.(unstage (of_bin_string N.step_t))
+  let step_to_bin_string = Type.(unstage (to_bin_string v1_step))
+
+  let step_of_bin_string = Type.(unstage (of_bin_string v1_step))
 
   let step_t : step Type.t =
     let to_string p = step_to_bin_string p in

@@ -54,3 +54,13 @@ module String_list = struct
 
   let t = Type.like ~cli:(pp, of_string) Type.(list step_t)
 end
+
+module V1 = struct
+  module String_list = struct
+    include String_list
+
+    let step_t = Type.string_of `Int64
+
+    let t = Type.like ~cli:(pp, of_string) Type.(list step_t)
+  end
+end

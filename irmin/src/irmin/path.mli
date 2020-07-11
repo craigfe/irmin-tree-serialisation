@@ -17,3 +17,7 @@
 (** Tree path handling. *)
 
 module String_list : S.PATH with type step = string and type t = string list
+
+module V1 : sig
+  module String_list : S.PATH with type step = string and type t = string list
+end

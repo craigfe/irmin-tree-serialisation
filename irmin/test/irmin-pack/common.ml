@@ -10,7 +10,7 @@ let rm_dir root =
     let cmd = Printf.sprintf "rm -rf %s" root in
     Logs.info (fun l -> l "exec: %s\n%!" cmd);
     let _ = Sys.command cmd in
-    () )
+    ())
 
 module S = struct
   include Irmin.Contents.String
@@ -21,11 +21,9 @@ module S = struct
 
   let hash = H.hash
 
-  let encode_pair =
-    Irmin.Type.(unstage (encode_bin ~headers:false (pair H.t t)))
+  let encode_pair = Irmin.Type.(unstage (encode_bin (pair H.t t)))
 
-  let decode_pair =
-    Irmin.Type.(unstage (decode_bin ~headers:false (pair H.t t)))
+  let decode_pair = Irmin.Type.(unstage (decode_bin (pair H.t t)))
 
   let encode_bin ~dict:_ ~offset:_ x k = encode_pair (k, x)
 

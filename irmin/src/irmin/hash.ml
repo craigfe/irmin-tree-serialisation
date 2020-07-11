@@ -80,16 +80,16 @@ module V1 (K : S.HASH) : S.HASH with type t = K.t = struct
 
   let of_bin_key = Type.unstage (Type.of_bin_string K.t)
 
-  let size_of ~headers =
-    let size_of = Type.unstage (Type.size_of ~headers h) in
+  let size_of =
+    let size_of = Type.unstage (Type.size_of h) in
     Type.stage (fun x -> size_of (to_bin_key x))
 
-  let encode_bin ~headers =
-    let encode_bin = Type.unstage (Type.encode_bin ~headers h) in
+  let encode_bin =
+    let encode_bin = Type.unstage (Type.encode_bin h) in
     Type.stage (fun e -> encode_bin (to_bin_key e))
 
-  let decode_bin ~headers =
-    let decode_bin = Type.unstage (Type.decode_bin ~headers h) in
+  let decode_bin =
+    let decode_bin = Type.unstage (Type.decode_bin h) in
     Type.stage @@ fun buf off ->
     let n, v = decode_bin buf off in
     ( n,

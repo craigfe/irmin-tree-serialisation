@@ -84,13 +84,13 @@ module Chunk (K : Irmin.Hash.S) = struct
 
   type t = { len : int; v : v }
 
-  let size_of = Irmin.Type.unstage (Irmin.Type.size_of ~headers:false v)
+  let size_of = Irmin.Type.unstage (Irmin.Type.size_of v)
 
   let to_bin_string = Irmin.Type.unstage (Irmin.Type.to_bin_string v)
 
-  let decode_bin = Irmin.Type.unstage (Irmin.Type.decode_bin ~headers:false v)
+  let decode_bin = Irmin.Type.unstage (Irmin.Type.decode_bin v)
 
-  let encode_bin = Irmin.Type.unstage (Irmin.Type.encode_bin ~headers:false v)
+  let encode_bin = Irmin.Type.unstage (Irmin.Type.encode_bin v)
 
   let size_of_v t =
     match size_of t with Some n -> n | None -> String.length (to_bin_string t)
@@ -193,7 +193,7 @@ struct
             in
             match list_partition n l with
             | [ i ] -> AO.add t.db key (index t i) >|= fun () -> key
-            | l -> Lwt_list.map_p (fun i -> CA.add t.db (index t i)) l >>= aux )
+            | l -> Lwt_list.map_p (fun i -> CA.add t.db (index t i)) l >>= aux)
       in
       aux l
   end
@@ -206,9 +206,9 @@ struct
       (chunk_size - Chunk.size_of_index_header) / K.hash_size
     in
     let chunking = C.get config Conf.chunking in
-    ( if max_children <= 1 then
-      let min = Chunk.size_of_index_header + (K.hash_size * 2) in
-      err_too_small ~min chunk_size );
+    (if max_children <= 1 then
+     let min = Chunk.size_of_index_header + (K.hash_size * 2) in
+     err_too_small ~min chunk_size);
     Log.debug (fun l ->
         l "config: chunk-size=%d digest-size=%d max-data=%d max-children=%d"
           chunk_size K.hash_size max_data max_children);
@@ -239,7 +239,7 @@ struct
     | Some bufs -> (
         let buf = String.concat "" bufs in
         check_hash key buf >|= fun () ->
-        match of_bin_string buf with Ok va -> Some va | Error _ -> None )
+        match of_bin_string buf with Ok va -> Some va | Error _ -> None)
 
   let list_range ~init ~stop ~step =
     let rec aux acc n =

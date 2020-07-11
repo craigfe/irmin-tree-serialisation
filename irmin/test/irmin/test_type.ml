@@ -1,5 +1,7 @@
 module T = Irmin.Type
 
+let id x = x
+
 type foo = { a : int; b : int }
 
 type bar = { c : int option; d : int option option }
@@ -8,11 +10,24 @@ let to_bin_string t = T.unstage (T.to_bin_string t)
 
 let of_bin_string t = T.unstage (T.of_bin_string t)
 
-let encode_bin ~headers t = T.unstage (T.encode_bin ~headers t)
+let encode_bin t = T.unstage (T.encode_bin t)
 
-let decode_bin ~headers t = T.unstage (T.decode_bin ~headers t)
+let decode_bin t = T.unstage (T.decode_bin t)
 
-let size_of ~headers t = T.unstage (T.size_of ~headers t)
+let size_of t = T.unstage (T.size_of t)
+
+let with_buf f =
+  let buf = Buffer.create 10 in
+  f (Buffer.add_string buf);
+  Buffer.contents buf
+
+module Unboxed = struct
+  let decode_bin t = T.unstage (T.Unboxed.decode_bin t)
+
+  let encode_bin t = T.unstage (T.Unboxed.encode_bin t)
+
+  let size_of t = T.unstage (T.Unboxed.size_of t)
+end
 
 let test_base () =
   let s = T.to_json_string T.string "foo" in
@@ -22,7 +37,7 @@ let test_base () =
   Alcotest.(check (option int))
     "binary size"
     (Some (String.length "foo"))
-    (size_of ~headers:true T.(string_of (`Fixed 3)) "foo");
+    (size_of T.(string_of (`Fixed 3)) "foo");
   let s = T.to_string T.string "foo" in
   Alcotest.(check string) "CLI string" "foo" s;
   let s = T.to_json_string T.int 42 in
@@ -34,7 +49,23 @@ let test_base () =
   let s = T.to_json_string T.unit () in
   Alcotest.(check string) "JSON unit" "{}" s
 
-let id x = x
+let test_boxing () =
+  let foo = "foo" in
+  let s = to_bin_string T.string foo in
+  Alcotest.(check string) "foo eq" s foo;
+  Alcotest.(check bool) "foo physeq" true (foo == s);
+  let check msg ty =
+    let msg f = Fmt.strf "%s: %s" msg f in
+    let buf = with_buf (encode_bin ty foo) in
+    Alcotest.(check string) (msg "boxed") buf "\003foo";
+    let buf = with_buf (Unboxed.encode_bin ty foo) in
+    Alcotest.(check string) (msg "unboxed") buf "foo";
+    let buf = with_buf (Unboxed.encode_bin (T.boxed ty) foo) in
+    Alcotest.(check string) (msg "force boxed") buf "\003foo"
+  in
+  check "string" T.string;
+  check "like" (T.like T.string);
+  check "map" (T.map T.string id id)
 
 let pp_hex ppf s =
   let (`Hex x) = Hex.of_string s in
@@ -81,6 +112,7 @@ let test_json () =
   let s = T.to_json_string hex "foo" in
   Alcotest.(check string) "JSON hex" "\"666f6f\"" s;
   let s = to_bin_string hex "foo" in
+  Fmt.epr "XXX %S\n%!" s;
   Alcotest.(check string) "CLI hex" "foo" s;
   let x = T.of_json_string hex "\"666f6f\"" in
   Alcotest.(check (ok string)) "JSON of hex" (Ok "foo") x;
@@ -178,30 +210,26 @@ let test_bin () =
   Alcotest.(check string) "encode list" "foobar" s;
   Alcotest.(check (option int))
     "size of list" (Some 6)
-    (size_of ~headers:true l [ "foo"; "bar" ]);
+    (size_of l [ "foo"; "bar" ]);
   let s = of_bin_string l "foobar" in
   Alcotest.(check (ok tl)) "decode list" (Ok [ "foo"; "bar" ]) s;
   let buf = Buffer.create 10 in
-  encode_bin ~headers:true T.string "foo" (Buffer.add_string buf);
+  encode_bin T.string "foo" (Buffer.add_string buf);
   Alcotest.(check string) "foo 1" (Buffer.contents buf) "\003foo";
   let buf = Buffer.create 10 in
-  encode_bin ~headers:false T.string "foo" (Buffer.add_string buf);
+  Unboxed.encode_bin T.string "foo" (Buffer.add_string buf);
   Alcotest.(check string) "foo 1" (Buffer.contents buf) "foo";
-  let _, foo = decode_bin ~headers:false T.string "foo" 0 in
+  let _, foo = Unboxed.decode_bin T.string "foo" 0 in
   Alcotest.(check string) "decode foo 0" foo "foo";
-  let _, foo = decode_bin ~headers:false T.string "123foo" 3 in
+  let _, foo = Unboxed.decode_bin T.string "123foo" 3 in
   Alcotest.(check string) "decode foo 3" foo "foo";
   let buf = Buffer.create 10 in
   let h = sha1 "foo" in
-  encode_bin ~headers:false Irmin.Hash.BLAKE2B.t h (Buffer.add_string buf);
+  encode_bin Irmin.Hash.BLAKE2B.t h (Buffer.add_string buf);
   let x = Buffer.contents buf in
   let buf = Bytes.create 100 in
   Bytes.blit_string x 0 buf 0 (String.length x);
-  let n, v =
-    decode_bin ~headers:false Irmin.Hash.BLAKE2B.t
-      (Bytes.unsafe_to_string buf)
-      0
-  in
+  let n, v = decode_bin Irmin.Hash.BLAKE2B.t (Bytes.unsafe_to_string buf) 0 in
   Alcotest.(check int) "hash size" n Irmin.Hash.BLAKE2B.hash_size;
   Alcotest.(check hash) "hash" v h
 
@@ -392,12 +420,12 @@ let test_pp_ty () =
       let a1 _ = assert false in
       let a2 _ _ = assert false in
       let s2 = T.stage @@ fun _ _ -> assert false in
-      let hdr ~headers:_ f = T.stage f in
+      let hdr f = T.stage f in
       T.v ~cli:(a2, a1) ~json:(a2, a1)
         ~bin:(hdr a2, hdr a2, hdr a1)
         ~equal:a2 ~compare:a2
         ~short_hash:(fun ?seed:_ -> a1)
-        ~pre_hash:s2
+        ~pre_hash:s2 ()
 
     let like_prim : int T.t = T.(like int)
 
@@ -444,7 +472,7 @@ let test_int () =
     | Ok y -> Alcotest.(check tt) "eq" x y
   in
   let size x s =
-    match size_of ~headers:true T.int x with
+    match size_of T.int x with
     | Some ss -> Alcotest.(check int) (Fmt.strf "size:%d" x) s ss
     | None -> Alcotest.fail "size"
   in
@@ -482,7 +510,7 @@ let test_decode () =
     try Ok (f ()) with e -> Fmt.kstrf (fun s -> Error s) "%a" Fmt.exn e
   in
   let decode ~off buf exp =
-    match (exp, wrap (fun () -> decode_bin ~headers:true T.string buf off)) with
+    match (exp, wrap (fun () -> decode_bin T.string buf off)) with
     | Error (), Error _ -> ()
     | Ok x, Ok (_, y) -> Alcotest.(check string) ("decode " ^ x) x y
     | Error _, Ok (_, y) -> Alcotest.failf "error expected, got %s" y
@@ -495,7 +523,7 @@ let test_decode () =
 
 let test_size () =
   let check t v n =
-    match size_of ~headers:true t v with
+    match size_of t v with
     | Some s ->
         let name = Fmt.strf "size: %a" (Irmin.Type.pp t) v in
         Alcotest.(check int) name n s
@@ -508,9 +536,9 @@ let test_size () =
   check Irmin.Type.string (String.make 128 'x') (2 + 128);
   check Irmin.Type.bytes (Bytes.of_string "foo") 4;
   check Irmin.Type.(list string) [] 1;
-  let s = size_of ~headers:false T.string "foo" in
+  let s = Unboxed.size_of T.string "foo" in
   Alcotest.(check (option int)) "foo 1" (Some 3) s;
-  let s = size_of ~headers:true T.string "foo" in
+  let s = size_of T.string "foo" in
   Alcotest.(check (option int)) "foo 1" (Some 4) s
 
 module Hash = Irmin.Hash.SHA1
@@ -535,6 +563,8 @@ let test_hashes () =
     Printf.eprintf "to_bin_string: %S\n" s;
     Irmin.Type.to_string Hash.t (Hash.hash (fun l -> l s))
   in
+
+  (* contents *)
   Alcotest.(check string)
     "empty contents" "da39a3ee5e6b4b0d3255bfef95601890afd80709"
     (digest Irmin.Contents.String.t "");
@@ -544,6 +574,11 @@ let test_hashes () =
   Alcotest.(check string)
     "contents" "b60d121b438a380c343d5ec3c2037564b82ffef3"
     (digest Irmin.Contents.String.t "xxx");
+  Alcotest.(check string)
+    "contents v1" "e2383c8f6ce9f8b894fbe26abe34e7db053bc48f"
+    (digest Irmin.Contents.V1.String.t "xxx");
+
+  (* nodes *)
   Alcotest.(check string)
     "empty node" "5ba93c9db0cff93f52b521d7420e43f6eda2784f"
     (digest Node.t Node.empty);
@@ -563,6 +598,8 @@ let test_hashes () =
   Alcotest.(check string)
     "node v1" "bc5615e070d2838b278a1de0bb63fe325dd9cb11"
     (digest Node_v1.t (n1 Node_v1.v hash_v1));
+
+  (* commits *)
   let v1 v hash = v ~info:Irmin.Info.empty ~node:(hash "toto") ~parents:[] in
   let v2 v hash =
     v
@@ -645,7 +682,7 @@ let test_variants () =
     let y =
       match of_bin_string v x with Ok x -> x | Error (`Msg e) -> failwith e
     in
-    let n = size_of ~headers:true v i in
+    let n = size_of v i in
     let s = to_bin_string v i in
     Alcotest.(check (option int)) ("sizes " ^ s) (Some (String.length x)) n;
     Alcotest.(check v_t) ("bij " ^ s) i y
@@ -662,37 +699,37 @@ let test_duplicate_names () =
     (Invalid_argument
        "The name foo was used for two or more fields in record bar.") (fun () ->
       ignore
-        ( record "bar" (fun a b -> { a; b })
+        (record "bar" (fun a b -> { a; b })
         |+ field "foo" int (fun r -> r.a)
         |+ field "foo" int (fun r -> r.b)
-        |> sealr ));
+        |> sealr));
 
   Alcotest.check_raises "Two variant case0 with the same name."
     (Invalid_argument
        "The name Foo was used for two or more case0 in variant or enum bar.")
     (fun () ->
       ignore
-        ( variant "bar" (fun a b -> function `A -> a | `B -> b)
+        (variant "bar" (fun a b -> function `A -> a | `B -> b)
         |~ case0 "Foo" `A
         |~ case0 "Foo" `B
-        |> sealv ));
+        |> sealv));
 
   Alcotest.check_raises "Two variant case1 with the same name."
     (Invalid_argument
        "The name Foo was used for two or more case1 in variant or enum bar.")
     (fun () ->
       ignore
-        ( variant "bar" (fun a b -> function `A i -> a i | `B i -> b i)
+        (variant "bar" (fun a b -> function `A i -> a i | `B i -> b i)
         |~ case1 "Foo" int (fun i -> `A i)
         |~ case1 "Foo" int (fun i -> `B i)
-        |> sealv ));
+        |> sealv));
 
   (* Check that we don't raise when two cases have the same name but different arity. *)
   ignore
-    ( variant "bar" (fun a b -> function `A -> a | `B i -> b i)
+    (variant "bar" (fun a b -> function `A -> a | `B i -> b i)
     |~ case0 "Foo" `A
     |~ case1 "Foo" int (fun i -> `B i)
-    |> sealv );
+    |> sealv);
 
   Alcotest.check_raises "Two enum cases with the same name."
     (Invalid_argument
@@ -705,21 +742,21 @@ let test_malformed_utf8 () =
     (Invalid_argument "Malformed UTF-8") (fun () ->
       let open Irmin.Type in
       ignore
-        ( record "foo" (fun a b -> { a; b })
+        (record "foo" (fun a b -> { a; b })
         |+ field "a" int (fun r -> r.a)
-        |+ field "\128\255\255\r\012\247" int (fun r -> r.b) ));
+        |+ field "\128\255\255\r\012\247" int (fun r -> r.b)));
   Alcotest.check_raises "Malformed UTF-8 in case0 name"
     (Invalid_argument "Malformed UTF-8") (fun () ->
       let open Irmin.Type in
       ignore
-        ( variant "foo" (fun a -> function `A -> a)
-        |~ case0 "\128\255\255\r\012\247" `A ));
+        (variant "foo" (fun a -> function `A -> a)
+        |~ case0 "\128\255\255\r\012\247" `A));
   Alcotest.check_raises "Malformed UTF-8 in case1 name"
     (Invalid_argument "Malformed UTF-8") (fun () ->
       let open Irmin.Type in
       ignore
-        ( variant "foo" (fun a -> function `A i -> a i)
-        |~ case1 "\128\255\255\r\012\247" int (fun i -> `A i) ));
+        (variant "foo" (fun a -> function `A i -> a i)
+        |~ case1 "\128\255\255\r\012\247" int (fun i -> `A i)));
   Alcotest.check_raises "Malformed UTF-8 in enum tag name"
     (Invalid_argument "Malformed UTF-8") (fun () ->
       let open Irmin.Type in
@@ -728,6 +765,7 @@ let test_malformed_utf8 () =
 let suite =
   [
     ("base", `Quick, test_base);
+    ("boxing", `Quick, test_boxing);
     ("json", `Quick, test_json);
     ("json_option", `Quick, test_json_option);
     ("bin", `Quick, test_bin);

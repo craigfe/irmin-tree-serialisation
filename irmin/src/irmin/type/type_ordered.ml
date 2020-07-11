@@ -42,12 +42,12 @@ module Refl = struct
     | Custom a, Custom b -> custom a b
     | Prim a, Prim b -> prim a b
     | Array a, Array b -> (
-        match t a.v b.v with Some Refl -> Some Refl | None -> None )
+        match t a.v b.v with Some Refl -> Some Refl | None -> None)
     | List a, List b -> (
-        match t a.v b.v with Some Refl -> Some Refl | None -> None )
+        match t a.v b.v with Some Refl -> Some Refl | None -> None)
     | Tuple a, Tuple b -> tuple a b
     | Option a, Option b -> (
-        match t a b with Some Refl -> Some Refl | None -> None )
+        match t a b with Some Refl -> Some Refl | None -> None)
     | Record a, Record b -> Witness.eq a.rwit b.rwit
     | Variant a, Variant b -> Witness.eq a.vwit b.vwit
     | _ -> None
@@ -65,11 +65,11 @@ module Refl = struct
     | Pair (a0, a1), Pair (b0, b1) -> (
         match (t a0 b0, t a1 b1) with
         | Some Refl, Some Refl -> Some Refl
-        | _ -> None )
+        | _ -> None)
     | Triple (a0, a1, a2), Triple (b0, b1, b2) -> (
         match (t a0 b0, t a1 b1, t a2 b2) with
         | Some Refl, Some Refl, Some Refl -> Some Refl
-        | _ -> None )
+        | _ -> None)
     | _ -> None
 end
 
@@ -120,19 +120,18 @@ module Equal = struct
     | Some x, Some y -> e x y
     | _ -> false
 
-  let rec t : type a. a t -> a equal =
-   fun ty a b ->
-    match ty with
-    | Self s -> t s.self_fix a b
-    | Custom c -> c.equal a b
-    | Map m -> map m a b
-    | Prim p -> prim p a b
-    | List l -> list (t l.v) a b
-    | Array x -> array (t x.v) a b
-    | Tuple t -> tuple t a b
-    | Option x -> option (t x) a b
-    | Record r -> record r a b
-    | Variant v -> variant v a b
+  let rec t : type a. a t -> a equal = function
+    | Self s -> t s.self_fix
+    | Custom c -> c.equal
+    | Map m -> map m
+    | Boxed x -> t x
+    | Prim p -> prim p
+    | List l -> list (t l.v)
+    | Array x -> array (t x.v)
+    | Tuple t -> tuple t
+    | Option x -> option (t x)
+    | Record r -> record r
+    | Variant v -> variant v
     | Var v -> raise (Unbound_type_variable v)
 
   and tuple : type a. a tuple -> a equal = function
@@ -140,7 +139,9 @@ module Equal = struct
     | Triple (a, b, c) -> triple (t a) (t b) (t c)
 
   and map : type a b. (a, b) map -> b equal =
-   fun { x; g; _ } u v -> t x (g u) (g v)
+   fun { x; g; _ } ->
+    let eq = t x in
+    fun u v -> eq (g u) (g v)
 
   and prim : type a. a prim -> a equal = function
     | Unit -> unit
@@ -154,7 +155,9 @@ module Equal = struct
     | Bytes _ -> bytes
 
   and record : type a. a record -> a equal =
-   fun r x y -> List.for_all (function Field f -> field f x y) (fields r)
+   fun r ->
+    let fields = fields r in
+    fun x y -> List.for_all (function Field f -> field f x y) fields
 
   and field : type a b. (a, b) field -> a equal =
    fun f x y -> t f.ftype (f.fget x) (f.fget y)
@@ -206,7 +209,7 @@ module Compare = struct
         | [], [] -> 0
         | [], _ -> -1
         | _, [] -> 1
-        | xx :: x, yy :: y -> ( match c xx yy with 0 -> aux x y | i -> i )
+        | xx :: x, yy :: y -> ( match c xx yy with 0 -> aux x y | i -> i)
       in
       aux x y
 
@@ -242,33 +245,30 @@ module Compare = struct
       | None, Some _ -> -1
       | Some x, Some y -> c x y
 
-  let prim : type a. a prim -> a compare =
-   fun ty a b ->
-    match ty with
-    | Unit -> (unit [@inlined]) a b
-    | Bool -> (bool [@inlined]) a b
-    | Char -> (char [@inlined]) a b
-    | Int -> (int [@inlined]) a b
-    | Int32 -> (int32 [@inlined]) a b
-    | Int64 -> (int64 [@inlined]) a b
-    | Float -> (float [@inlined]) a b
-    | String _ -> (string [@inlined]) a b
-    | Bytes _ -> (bytes [@inlined]) a b
-   [@@inline always]
+  let prim : type a. a prim -> a compare = function
+    | Unit -> unit
+    | Bool -> bool
+    | Char -> char
+    | Int -> int
+    | Int32 -> int32
+    | Int64 -> int64
+    | Float -> float
+    | String _ -> string
+    | Bytes _ -> bytes
+    [@@inline always]
 
-  let rec t : type a. a t -> a compare =
-   fun ty a b ->
-    match ty with
-    | Self s -> t s.self_fix a b
-    | Custom c -> c.compare a b
-    | Map m -> map m a b
-    | Prim p -> (prim [@inlined]) p a b
-    | List l -> list (t l.v) a b
-    | Array x -> array (t x.v) a b
-    | Tuple t -> tuple t a b
-    | Option x -> option (t x) a b
-    | Record r -> record r a b
-    | Variant v -> variant v a b
+  let rec t : type a. a t -> a compare = function
+    | Self s -> t s.self_fix
+    | Custom c -> c.compare
+    | Map m -> map m
+    | Boxed x -> t x
+    | Prim p -> (prim [@inlined]) p
+    | List l -> list (t l.v)
+    | Array x -> array (t x.v)
+    | Tuple t -> tuple t
+    | Option x -> option (t x)
+    | Record r -> record r
+    | Variant v -> variant v
     | Var v -> raise (Unbound_type_variable v)
 
   and tuple : type a. a tuple -> a compare = function
@@ -276,15 +276,19 @@ module Compare = struct
     | Triple (x, y, z) -> triple (t x) (t y) (t z)
 
   and map : type a b. (a, b) map -> b compare =
-   fun { x; g; _ } u v -> t x (g u) (g v)
+   fun { x; g; _ } ->
+    let compare = t x in
+    fun u v -> compare (g u) (g v)
 
   and record : type a. a record -> a compare =
-   fun r x y ->
-    let rec aux = function
-      | [] -> 0
-      | Field f :: t -> ( match field f x y with 0 -> aux t | i -> i )
-    in
-    aux (fields r)
+   fun r ->
+    let fields = fields r in
+    fun x y ->
+      let rec aux = function
+        | [] -> 0
+        | Field f :: t -> ( match field f x y with 0 -> aux t | i -> i)
+      in
+      aux fields
 
   and field : type a b. (a, b) field -> a compare =
    fun f x y -> t f.ftype (f.fget x) (f.fget y)
@@ -301,7 +305,7 @@ module Compare = struct
     | CV1 (x, vx), CV1 (y, vy) -> (
         match int x.ctag1 y.ctag1 with
         | 0 -> compare (x.ctype1, vx) (y.ctype1, vy)
-        | i -> i )
+        | i -> i)
 
   and compare : type a b. a t * a -> b t * b -> int =
    fun (tx, x) (ty, y) ->

@@ -115,14 +115,14 @@ module Json_value = struct
     | `Float a, `Float b -> Type.(equal float) a b
     | `A a, `A b -> (
         try List.for_all2 (fun a' b' -> equal a' b') a b
-        with Invalid_argument _ -> false )
+        with Invalid_argument _ -> false)
     | `O a, `O b -> (
         let compare_fst (a, _) (b, _) = compare a b in
         try
           List.for_all2
             (fun (k, v) (k', v') -> k = k' && equal v v')
             (List.sort compare_fst a) (List.sort compare_fst b)
-        with Invalid_argument _ -> false )
+        with Invalid_argument _ -> false)
     | _, _ -> false
 
   let t = Type.like ~equal ~cli:(pp, of_string) t
@@ -218,7 +218,7 @@ module Json_tree (Store : Store.S with type contents = json) = struct
       | (k, v) :: l -> (
           match Type.of_string Store.Key.step_t k with
           | Ok key -> obj l ((key, node v []) :: acc)
-          | _ -> obj l acc )
+          | _ -> obj l acc)
     and node j acc =
       match j with
       | `O j -> obj j acc
@@ -303,14 +303,16 @@ module V1 = struct
   module String = struct
     include String
 
-    let t = Type.string_of `Int64
+    let t = Type.(boxed (string_of `Int64))
 
-    let size_of ~headers:_ = Type.size_of t ~headers:true
+    let size_of = Type.size_of t
 
-    let decode_bin ~headers:_ = Type.decode_bin t ~headers:true
+    let decode_bin = Type.decode_bin t
 
-    let encode_bin ~headers:_ = Type.encode_bin t ~headers:true
+    let encode_bin = Type.encode_bin t
 
-    let t = Type.like t ~bin:(encode_bin, decode_bin, size_of)
+    let pre_hash = Type.pre_hash t
+
+    let t = Type.like t ~bin:(encode_bin, decode_bin, size_of) ~pre_hash
   end
 end

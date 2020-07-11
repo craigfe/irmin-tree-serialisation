@@ -36,7 +36,7 @@ module Make (K : Irmin.Hash.S) = struct
 
     let encoded_size = K.hash_size
 
-    let decode_bin = Irmin.Type.(unstage (decode_bin ~headers:false K.t))
+    let decode_bin = Irmin.Type.(unstage (decode_bin K.t))
 
     let decode s off =
       let _, v = decode_bin s off in
@@ -53,8 +53,7 @@ module Make (K : Irmin.Hash.S) = struct
 
     let encode (off, len, kind) = to_bin_string (off, Int32.of_int len, kind)
 
-    let decode_bin =
-      Irmin.Type.(unstage (decode_bin ~headers:false (triple int64 int32 char)))
+    let decode_bin = Irmin.Type.(unstage (decode_bin (triple int64 int32 char)))
 
     let decode s off =
       let off, len, kind = snd (decode_bin s off) in

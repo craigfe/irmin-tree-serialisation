@@ -173,8 +173,7 @@ module History (S : S.COMMIT_STORE) = struct
   let closure t ~min ~max =
     Log.debug (fun f -> f "closure");
     let pred = function
-      | `Commit k -> (
-          S.find t k >|= function Some r -> edges r | None -> [] )
+      | `Commit k -> ( S.find t k >|= function Some r -> edges r | None -> [])
       | _ -> Lwt.return_nil
     in
     let min = List.map (fun k -> `Commit k) min in
@@ -232,7 +231,7 @@ module History (S : S.COMMIT_STORE) = struct
     KSet.iter (add_todo 0) init;
     let rec aux seen =
       match check () with
-      | (`Too_many_lcas | `Max_depth_reached) as x -> Lwt.return_error x
+      | (`Too_many_lcas | `Max_depth_reached) as x -> Lwt.return (Error x)
       | `Stop -> return ()
       | `Continue -> (
           match unqueue todo seen with
@@ -245,7 +244,7 @@ module History (S : S.COMMIT_STORE) = struct
               let () = f depth commit parents in
               let parents = KSet.diff parents seen in
               KSet.iter (add_todo (depth + 1)) parents;
-              aux seen )
+              aux seen)
     in
     aux KSet.empty
 
@@ -362,7 +361,7 @@ module History (S : S.COMMIT_STORE) = struct
     let is_shared () = new_mark = SeenBoth || new_mark = LCA in
     if is_shared () && is_init () then (
       Log.debug (fun f -> f "fast-forward");
-      t.complete <- true );
+      t.complete <- true);
     set_mark t commit new_mark;
     new_mark
 
@@ -399,7 +398,7 @@ module History (S : S.COMMIT_STORE) = struct
          by one node? *)
       let layer = get_layer t t.depth in
       let complete = KSet.for_all (both_seen t) layer in
-      if complete then t.complete <- true else t.depth <- depth );
+      if complete then t.complete <- true else t.depth <- depth);
     let mark = get_mark_exn t commit in
     KSet.iter (update_ancestors_marks t mark) parents
 
@@ -414,15 +413,15 @@ module History (S : S.COMMIT_STORE) = struct
 
   let lcas t ?(max_depth = max_int) ?(n = max_int) c1 c2 =
     incr lca_calls;
-    if max_depth < 0 then Lwt.return_error `Max_depth_reached
-    else if n <= 0 then Lwt.return_error `Too_many_lcas
-    else if equal_keys c1 c2 then Lwt.return_ok [ c1 ]
+    if max_depth < 0 then Lwt.return (Error `Max_depth_reached)
+    else if n <= 0 then Lwt.return (Error `Too_many_lcas)
+    else if equal_keys c1 c2 then Lwt.return (Ok [ c1 ])
     else
       let init = KSet.of_list [ c1; c2 ] in
       let s = empty_state c1 c2 in
       let check () = check ~max_depth ~n s in
       let pp () = pp_state s in
-      let return () = Lwt.return_ok (lcas s) in
+      let return () = Lwt.return (Ok (lcas s)) in
       let t0 = Sys.time () in
       Lwt.finalize
         (fun () ->
@@ -473,7 +472,7 @@ module History (S : S.COMMIT_STORE) = struct
             | c :: cs -> (
                 three_way_merge t ~info ?max_depth ?n acc c >>= function
                 | Error (`Conflict _) -> Merge.ok None
-                | Ok acc -> aux acc cs )
+                | Ok acc -> aux acc cs)
           in
           aux c cs
 
@@ -483,7 +482,7 @@ module History (S : S.COMMIT_STORE) = struct
     | c1 :: c2 :: cs -> (
         lca_aux t ~info ?max_depth ?n c1 c2 >>=* function
         | None -> Merge.ok None
-        | Some c -> lca t ~info ?max_depth ?n (c :: cs) )
+        | Some c -> lca t ~info ?max_depth ?n (c :: cs))
 end
 
 module V1 (C : S.COMMIT) = struct
@@ -494,16 +493,16 @@ module V1 (C : S.COMMIT) = struct
 
     let hash_of_bin_string = Type.(unstage (of_bin_string C.hash_t))
 
-    let size_of ~headers:_ =
-      let size_of = Type.(unstage (size_of ~headers:true h)) in
+    let size_of =
+      let size_of = Type.(unstage (size_of h)) in
       Type.stage (fun x -> size_of (hash_to_bin_string x))
 
-    let encode_bin ~headers:_ =
-      let encode_bin = Type.(unstage (encode_bin ~headers:true h)) in
+    let encode_bin =
+      let encode_bin = Type.(unstage (encode_bin h)) in
       Type.stage @@ fun e k -> encode_bin (hash_to_bin_string e) k
 
-    let decode_bin ~headers:_ =
-      let decode_bin = Type.(unstage (decode_bin ~headers:true h)) in
+    let decode_bin =
+      let decode_bin = Type.(unstage (decode_bin h)) in
       Type.stage @@ fun buf off ->
       let n, v = decode_bin buf off in
       ( n,

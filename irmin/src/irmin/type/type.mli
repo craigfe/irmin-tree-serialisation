@@ -31,7 +31,10 @@ type 'a t
 (** The type for runtime representation of values of type ['a]. *)
 
 type len = [ `Int | `Int8 | `Int16 | `Int32 | `Int64 | `Fixed of int ]
-(** The type of integer used to store buffers, list or array lengths. *)
+(** The type of integer used to store buffers, list or array lengths.
+
+    [Int] use a (compressed) variable encoding to encode integers in a binary
+    format, while [IntX] always use [X] bytes. Overflows are not detected. *)
 
 (** {1:primitives Primitives} *)
 
@@ -64,10 +67,10 @@ val bytes : bytes t
 (** [bytes] is a representation of the [bytes] type. *)
 
 val string_of : len -> string t
-(** Like {!string} but with a given fixed size. *)
+(** Like {!string} but with a given kind of size. *)
 
 val bytes_of : len -> bytes t
-(** Like {!bytes} but with a given fixed size. *)
+(** Like {!bytes} but with a given kind of size. *)
 
 val list : ?len:len -> 'a t -> 'a list t
 (** [list t] is a representation of lists of values of type [t]. *)
@@ -310,6 +313,10 @@ val to_string : 'a t -> 'a -> string
 val of_string : 'a t -> 'a of_string
 (** [of_string t] parses values of type [t]. *)
 
+val boxed : 'a t -> 'a t
+(** [boxed t] is the same as [t] but with a binary representation which is
+    always boxed (e.g. top-level values won't be unboxed). *)
+
 (** {2 JSON converters} *)
 
 module Json : sig
@@ -415,22 +422,16 @@ val unstage : 'a staged -> 'a
 
 (** {2 Binary Converters} *)
 
-type 'a bin_seq = 'a -> (string -> unit) -> unit
+type 'a encode_bin = ('a -> (string -> unit) -> unit) staged
+(** The type for binary encoders. *)
 
-type 'a encode_bin = headers:bool -> 'a bin_seq staged
-(** The type for binary encoders. If [headers] is not set, do not output extra
-    length headers for buffers. *)
+type 'a decode_bin = (string -> int -> int * 'a) staged
+(** The type for binary decoders. *)
 
-type 'a decode_bin = headers:bool -> (string -> int -> int * 'a) staged
-(** The type for binary decoders. IF [headers] is not set, do not read extra
-    length header for buffers and consider the whole buffer instead. *)
-
-type 'a size_of = headers:bool -> ('a -> int option) staged
+type 'a size_of = ('a -> int option) staged
 (** The type for size function related to binary encoder/decoders. *)
 
-type 'a pre_hash = 'a bin_seq staged
-
-val pre_hash : 'a t -> 'a pre_hash
+val pre_hash : 'a t -> 'a encode_bin
 (** [pre_hash t x] is the string representation of [x], of type [t], which will
     be used to compute the digest of the value. By default it's
     [to_bin_string t x] but it can be overriden by {!v}, {!like} and {!map}
@@ -459,26 +460,37 @@ val size_of : 'a t -> 'a size_of
 (** [size_of t x] is either the size of [encode_bin t x] or the binary encoding
     of [x], if the backend is not able to pre-compute serialisation lengths. *)
 
+module Unboxed : sig
+  val encode_bin : 'a t -> 'a encode_bin
+
+  val decode_bin : 'a t -> 'a decode_bin
+
+  val size_of : 'a t -> 'a size_of
+end
+
 (** {1 Customs converters} *)
 
 val v :
   cli:'a pp * 'a of_string ->
   json:'a encode_json * 'a decode_json ->
   bin:'a encode_bin * 'a decode_bin * 'a size_of ->
+  ?unboxed_bin:'a encode_bin * 'a decode_bin * 'a size_of ->
   equal:('a -> 'a -> bool) ->
   compare:('a -> 'a -> int) ->
   short_hash:(?seed:int -> 'a -> int) ->
-  pre_hash:'a pre_hash ->
+  pre_hash:'a encode_bin ->
+  unit ->
   'a t
 
 val like :
   ?cli:'a pp * 'a of_string ->
   ?json:'a encode_json * 'a decode_json ->
   ?bin:'a encode_bin * 'a decode_bin * 'a size_of ->
+  ?unboxed_bin:'a encode_bin * 'a decode_bin * 'a size_of ->
   ?equal:('a -> 'a -> bool) ->
   ?compare:('a -> 'a -> int) ->
   ?short_hash:('a -> int) ->
-  ?pre_hash:'a pre_hash ->
+  ?pre_hash:'a encode_bin ->
   'a t ->
   'a t
 
@@ -486,10 +498,11 @@ val map :
   ?cli:'a pp * 'a of_string ->
   ?json:'a encode_json * 'a decode_json ->
   ?bin:'a encode_bin * 'a decode_bin * 'a size_of ->
+  ?unboxed_bin:'a encode_bin * 'a decode_bin * 'a size_of ->
   ?equal:('a -> 'a -> bool) ->
   ?compare:('a -> 'a -> int) ->
   ?short_hash:('a -> int) ->
-  ?pre_hash:'a pre_hash ->
+  ?pre_hash:'a encode_bin ->
   'b t ->
   ('b -> 'a) ->
   ('a -> 'b) ->

@@ -113,7 +113,7 @@ module Atomic_write (K : Irmin.Type.S) (V : Irmin.Hash.S) = struct
     mutable open_instances : int;
   }
 
-  let decode_bin = Irmin.Type.(unstage (decode_bin ~headers:false int32))
+  let decode_bin = Irmin.Type.(unstage (decode_bin int32))
 
   let read_length32 ~off block =
     let buf = Bytes.create 4 in
@@ -133,7 +133,7 @@ module Atomic_write (K : Irmin.Type.S) (V : Irmin.Hash.S) = struct
 
   let value_of_bin_string = Irmin.Type.(unstage (of_bin_string V.t))
 
-  let value_decode_bin = Irmin.Type.(unstage (decode_bin ~headers:false V.t))
+  let value_decode_bin = Irmin.Type.(unstage (decode_bin V.t))
 
   let set_entry t ?off k v =
     let k = key_to_bin_string k in
@@ -219,7 +219,7 @@ module Atomic_write (K : Irmin.Type.S) (V : Irmin.Hash.S) = struct
   let valid t =
     if t.open_instances <> 0 then (
       t.open_instances <- t.open_instances + 1;
-      true )
+      true)
     else false
 
   let unsafe_v ~fresh ~readonly file =
@@ -301,7 +301,7 @@ module Atomic_write (K : Irmin.Type.S) (V : Irmin.Hash.S) = struct
       Tbl.reset t.cache;
       if not (IO.readonly t.block) then IO.flush t.block;
       IO.close t.block;
-      W.clear t.w )
+      W.clear t.w)
     else Lwt.return_unit
 
   let close t = Lwt_mutex.with_lock t.lock (fun () -> unsafe_close t)
@@ -367,11 +367,9 @@ struct
 
           let value = value Val.t
 
-          let encode_value =
-            Irmin.Type.(unstage (encode_bin ~headers:false value))
+          let encode_value = Irmin.Type.(unstage (encode_bin value))
 
-          let decode_value =
-            Irmin.Type.(unstage (decode_bin ~headers:false value))
+          let decode_value = Irmin.Type.(unstage (decode_bin value))
 
           let encode_bin ~dict:_ ~offset:_ v hash =
             encode_value { magic; hash; v }
@@ -409,11 +407,9 @@ struct
 
           let magic = 'C'
 
-          let encode_value =
-            Irmin.Type.(unstage (encode_bin ~headers:false value))
+          let encode_value = Irmin.Type.(unstage (encode_bin value))
 
-          let decode_value =
-            Irmin.Type.(unstage (decode_bin ~headers:false value))
+          let decode_value = Irmin.Type.(unstage (decode_bin value))
 
           let encode_bin ~dict:_ ~offset:_ v hash =
             encode_value { magic; hash; v }
@@ -566,7 +562,7 @@ struct
           | Error `Absent_value -> incr nb_absent)
         t.index;
       if !nb_absent = 0 && !nb_corrupted = 0 then Ok `No_error
-      else Error (`Corrupted (!nb_corrupted + !nb_absent)) )
+      else Error (`Corrupted (!nb_corrupted + !nb_absent)))
 
   include Irmin.Of_private (X)
 

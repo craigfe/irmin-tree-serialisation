@@ -54,7 +54,7 @@ module Make (IO : IO.S) : S = struct
 
   let int32_to_bin = Irmin.Type.(unstage (to_bin_string int32))
 
-  let decode_int32 = Irmin.Type.(unstage (decode_bin ~headers:false int32))
+  let decode_int32 = Irmin.Type.(unstage (decode_bin int32))
 
   let append_string t v =
     let len = Int32.of_int (String.length v) in
@@ -101,7 +101,7 @@ module Make (IO : IO.S) : S = struct
         append_string t v;
         Hashtbl.add t.cache v id;
         Hashtbl.add t.index id v;
-        Some id )
+        Some id)
 
   let find t id =
     Log.debug (fun l -> l "[dict] find %d" id);
@@ -127,11 +127,11 @@ module Make (IO : IO.S) : S = struct
       if not (IO.readonly t.io) then flush t;
       IO.close t.io;
       Hashtbl.reset t.cache;
-      Hashtbl.reset t.index )
+      Hashtbl.reset t.index)
 
   let valid t =
     if t.open_instances <> 0 then (
       t.open_instances <- t.open_instances + 1;
-      true )
+      true)
     else false
 end
