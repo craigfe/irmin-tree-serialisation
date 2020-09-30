@@ -1,16 +1,5 @@
 (executable
  (name main)
  (public_name irmin-tree-serialisation)
- (libraries
-   digestif
-   rusage
-   index
-   irmin
-   irmin-pack
-   lwt
-   lwt.unix
-   tezos-crypto
-   tezos-error-monad
-   data-encoding
-   ocplib-endian
-   fmt))
+ (libraries digestif index irmin irmin-pack lwt lwt.unix tezos-crypto
+   tezos-error-monad data-encoding ocplib-endian hex fmt))

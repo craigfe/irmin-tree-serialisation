@@ -8,6 +8,8 @@ module Hash : sig
 
   val of_context_hash : Context_hash.t -> t
 
+  val to_hex_string : t -> string
+
   val of_hex_string : string -> t
 
   val truncate : int -> t -> string
@@ -18,6 +20,8 @@ end = struct
   end)
 
   type t = H.t
+
+  let to_hex_string = H.to_hex
 
   let of_hex_string = H.of_hex
 
